@@ -1,6 +1,6 @@
 use core::panic;
 
-use crate::{BinaryExpressionSyntax, SyntaxKind, SyntaxNode, UnaryExpressionSyntax, Value};
+use crate::{diagnostics::DiagnosticBag, BinaryExpressionSyntax, SyntaxKind, SyntaxNode, UnaryExpressionSyntax, Value};
 
 
 #[derive(Clone)]
@@ -25,7 +25,8 @@ impl BoundNodeKind {
         } else if let BoundNodeKind::BoundUnaryExpressionNode(un) = self {
             return un.operator_kind.result_type.clone()
         }
-        panic!()
+        // panic!()
+        Type::Unkown
     }
 }
 
@@ -80,11 +81,13 @@ pub enum BoundBinaryOperatorKind {
 //     Division,
 // }
 
+
 #[derive(PartialEq, Clone)]
 pub enum Type {
     Number,
     Bool,
     Any,
+    Unkown
 }
 
 #[derive(Clone)]
@@ -200,24 +203,26 @@ impl BoundBinaryOperator {
         } 
 
         panic!()
+        
     }
 }
 
 pub struct Binder {
-    pub diagnostics: Vec<String>,
+    pub diagnostics: DiagnosticBag,
 }
 
 impl Binder {
-    pub fn new() {
-        
+    pub fn new() -> Self {
+        Self { diagnostics: DiagnosticBag::new() }
     }
 
-    pub fn get_diagnostics(&self) -> Vec<String> {
+    pub fn get_diagnostics(&self) -> DiagnosticBag {
         return self.diagnostics.clone()
     }
 
     pub fn bind_expression(&self, expression_kind: SyntaxNode) -> BoundNodeKind {
         return match expression_kind {
+            SyntaxNode::ParenthesizedExpression(par) => self.bind_expression(*par.sub_expression),
             SyntaxNode::NumberNode(number_node) => self.bind_literal_expression(number_node),
             SyntaxNode::BoolNode(bool_node) => self.bind_literal_expression(bool_node),
             SyntaxNode::UnaryExpressionSyntax(unary_node) => BoundNodeKind::BoundUnaryExpressionNode(self.bind_unary_expresssion(unary_node)),

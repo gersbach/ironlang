@@ -1,9 +1,11 @@
 mod binding;
+mod diagnostics;
 
 use std::{
     collections::binary_heap::Iter, fmt, io::{stdin, stdout, Write}, ops::Bound, vec
 };
-use binding::{BoundBinaryOperatorKind, BoundNodeKind, BoundUnaryOperatorKind};
+use diagnostics::{Diagnostic, DiagnosticBag, TextSpan};
+use binding::{BoundBinaryOperatorKind, BoundNodeKind, BoundUnaryOperatorKind, Type};
 use inline_colorization::*;
 
 use crate::binding::Binder;
@@ -32,23 +34,23 @@ fn main() {
         // ASTs have a slot for the type and the type checker fills that in
         let token = parser.parse();
 
-        let binder = Binder { diagnostics: vec![] };
-        let expression_kind = *token.expression;
-        let bound_expression = binder.bind_expression(expression_kind.clone());
+        let compilation = Compilation::new(token.clone());
+        let result = compilation.evaluate();
+
+        parser.pretty_print(&token.expression.clone(), "".to_string(), true);
 
 
         // bound tree / ir / annotated representation contains the types
 
-        parser.pretty_print(&expression_kind, "".to_string(), true);
 
         if parser.diagnostics.len() > 0 {
-            for diagnostic in parser.diagnostics {
+            for diagnostic in parser.diagnostics.diagnostics {
                 println!("{color_red}{diagnostic}{color_reset}");
             }
         } else {
-            let evaluateor = Evaluator::new(bound_expression);
-            let value = evaluateor.evaluate();
-            println!("RET {:?}", value);
+            // let evaluateor = Evaluator::new(token.expression);
+            // let value = evaluateor.evaluate();
+            println!("RET {:?}", result);
         }
 
         // if line == "1 + 2 + 3\n" {
@@ -86,7 +88,7 @@ enum SyntaxKind {
 struct Lexer {
     text: String,
     position: i32,
-    diagnostics: Vec<String>,
+    diagnostics: DiagnosticBag,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +97,7 @@ struct SyntaxToken {
     position: i32,
     text: String,
     value: Option<Value>,
+    span: TextSpan
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -148,8 +151,9 @@ impl SyntaxToken {
         SyntaxToken {
             kind,
             position,
-            text,
+            text: text.clone(),
             value,
+            span: TextSpan::new(position, text.clone().len() as i32)
         }
     }
 }
@@ -159,7 +163,7 @@ impl Lexer {
         Lexer {
             text,
             position: 0,
-            diagnostics: vec![],
+            diagnostics: DiagnosticBag::new(),
         }
     }
 
@@ -231,10 +235,7 @@ impl Lexer {
             let value = match value {
                 Ok(value) => Some(Value { value: Some(value), bool: None  }),
                 Err(_) => {
-                    self.diagnostics.push(format!(
-                        "the number {:?} cannot be represented by an int32",
-                        value
-                    ));
+                    self.diagnostics.report_invalid_number(TextSpan::new(start, length), Type::Number);
                     None
                 }
             };
@@ -257,7 +258,6 @@ impl Lexer {
             while self.current().is_alphabetic() {
                 self.next()
             }
-            println!("here");
             let length = self.position - start;
             let text: String = self
             .text
@@ -266,7 +266,6 @@ impl Lexer {
             .take(length as usize)
             .collect();
             let kind = self.get_keyword_kind(&text);
-            println!("kind {kind:?}");
             return SyntaxToken::new(kind, start, text, None);
         } else if self.current() == '+' {
             self.position += 1;
@@ -325,8 +324,7 @@ impl Lexer {
             );
         }
 
-        self.diagnostics
-            .push(format!("ERROR: bad character input: {}", self.current()));
+        self.diagnostics.report_bad_character(self.position, self.current());
 
         return SyntaxToken::new(
             SyntaxKind::BadToken,
@@ -340,7 +338,7 @@ impl Lexer {
 struct Parser {
     tokens: Vec<SyntaxToken>,
     position: usize,
-    pub diagnostics: Vec<String>,
+    pub diagnostics: DiagnosticBag,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -439,8 +437,9 @@ impl fmt::Display for SyntaxNode {
     }
 }
 
+#[derive(Clone)]
 struct SyntaxTree {
-    diagnostics: Vec<String>,
+    diagnostics: DiagnosticBag,
     expression: Box<SyntaxNode>,
     end_of_file_token: SyntaxToken,
 }
@@ -500,7 +499,7 @@ impl Parser {
         let thing = self.peek(0).kind;
         if thing != SyntaxKind::EndOfFileToekn {
             println!("thing {thing:?}");
-            self.diagnostics.push(format!("ERROR : unexpected token {:?}", self.current().text));
+            self.diagnostics.report_unexpected_token(TextSpan::new(self.position as i32, 1), thing, SyntaxKind::EndOfFileToekn);
         }
 
 
@@ -652,6 +651,40 @@ impl Parser {
     }
 }
 
+pub struct Compilation {
+    syntax_tree: SyntaxTree
+}
+
+pub struct EvaluationResult {
+    diagnostics: Vec<Diagnostic>,
+    value: Value
+}
+
+impl Compilation {
+    pub fn new(syntax_tree: SyntaxTree) -> Self {
+        Self { syntax_tree }
+    }
+
+    pub fn evaluate(&self) -> Value {
+        let binder = Binder::new();
+        let boundExpression = binder.bind_expression(*self.syntax_tree.expression.clone());
+
+        let evaluator = Evaluator::new(boundExpression);
+        evaluator.evaluate()
+    }
+
+    
+}
+
+impl EvaluationResult {
+    pub fn new(diagnostics: Vec<Diagnostic>, value: Value) -> Self {
+        Self {
+            diagnostics,
+            value
+        }
+    }
+}
+
 struct Evaluator {
     root: BoundNodeKind,
 }
@@ -724,7 +757,7 @@ impl Evaluator {
                 }
                 Value::from_num(-304)
             }
-            _ => Value::from_num(-202),
+            _ => Value::from_num(-202) ,
         }
     }
 }
