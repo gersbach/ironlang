@@ -1,6 +1,7 @@
 use core::panic;
+use std::{collections::HashMap, fmt};
 
-use crate::{diagnostics::DiagnosticBag, BinaryExpressionSyntax, SyntaxKind, SyntaxNode, UnaryExpressionSyntax, Value};
+use crate::{diagnostics::{DiagnosticBag, TextSpan}, AssignmentExpressionSyntax, BinaryExpressionSyntax, NameExpressionSyntax, ParenthesizedExpression, SyntaxKind, SyntaxNode, UnaryExpressionSyntax, Value};
 
 
 #[derive(Clone)]
@@ -9,7 +10,31 @@ pub enum BoundNodeKind {
     BoundUnaryOperatorKind(BoundUnaryOperatorKind),
     BoundLiteralExpression(BoundLiteralExpression),
     BoundBinaryExpression(BoundBinaryExpression),
+    BoundAssignmentExpression(BoundAssignmentExpression),
+    BoundVariableExpression(BoundVariableExpression),
     Unkown
+}
+
+#[derive(Clone, Debug)]
+pub struct BoundVariableExpression {
+    pub name: String,
+    pub _type: Type,
+}
+
+impl BoundVariableExpression {
+    pub fn new(name: String, _type: Type) -> Self {
+        Self { name, _type }
+    }
+}
+
+#[derive(Clone)]
+pub struct BoundAssignmentExpression {
+    pub name: String,
+    pub bound_expression: Box<BoundNodeKind>
+}
+
+impl BoundAssignmentExpression {
+
 }
 
 impl BoundNodeKind {
@@ -22,6 +47,8 @@ impl BoundNodeKind {
             }
         } else if let BoundNodeKind::BoundBinaryExpression(bin) = self {
             return bin.bound_binary_operator_kind.result_type.clone()
+        } else if let BoundNodeKind::BoundVariableExpression(var) = self {
+            return var._type.clone()
         } else if let BoundNodeKind::BoundUnaryExpressionNode(un) = self {
             return un.operator_kind.result_type.clone()
         }
@@ -82,12 +109,23 @@ pub enum BoundBinaryOperatorKind {
 // }
 
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum Type {
     Number,
     Bool,
     Any,
     Unkown
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return match self {
+            Type::Number => write!(f, "number"),
+            Type::Bool => write!(f, "bool"),
+            Type::Any => write!(f, "any"),
+            Type::Unkown => write!(f, "unkonw"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -182,6 +220,8 @@ impl BoundBinaryOperator {
 
     pub fn bind(syntax_kind: SyntaxKind, left_type: Type, right_type: Type) -> BoundBinaryOperator {
 
+        println!("left_type {} right_type {}", left_type, right_type);
+ 
         if syntax_kind == SyntaxKind::EqEqToken {
             return Self::new(SyntaxKind::EqEqToken, BoundBinaryOperatorKind::Equals, left_type, right_type, Type::Bool)
         } else if syntax_kind == SyntaxKind::BangEqToken {
@@ -207,22 +247,25 @@ impl BoundBinaryOperator {
     }
 }
 
-pub struct Binder {
+pub struct Binder<'a> {
     pub diagnostics: DiagnosticBag,
+    pub variables: &'a HashMap<String, Value>
 }
 
-impl Binder {
-    pub fn new() -> Self {
-        Self { diagnostics: DiagnosticBag::new() }
+impl<'a> Binder<'a> {
+    pub fn new(variables: &'a HashMap<String, Value>) -> Self {
+        Self { diagnostics: DiagnosticBag::new(), variables }
     }
 
     pub fn get_diagnostics(&self) -> DiagnosticBag {
         return self.diagnostics.clone()
     }
 
-    pub fn bind_expression(&self, expression_kind: SyntaxNode) -> BoundNodeKind {
+    pub fn bind_expression(&mut self, expression_kind: SyntaxNode) -> BoundNodeKind {
         return match expression_kind {
-            SyntaxNode::ParenthesizedExpression(par) => self.bind_expression(*par.sub_expression),
+            SyntaxNode::NameExpressionSyntax(name) => self.bind_name_expression(name),
+            SyntaxNode::AssignmentExpressionSyntax(asign) => self.bind_assignment_expression(asign),
+            SyntaxNode::ParenthesizedExpression(par) => self.bind_parenthesis_expression(par),
             SyntaxNode::NumberNode(number_node) => self.bind_literal_expression(number_node),
             SyntaxNode::BoolNode(bool_node) => self.bind_literal_expression(bool_node),
             SyntaxNode::UnaryExpressionSyntax(unary_node) => BoundNodeKind::BoundUnaryExpressionNode(self.bind_unary_expresssion(unary_node)),
@@ -231,7 +274,25 @@ impl Binder {
         }
     }
 
-    pub fn bind_literal_expression(&self, syntax: Value ) -> BoundNodeKind {
+    pub fn bind_name_expression(&mut self, name: NameExpressionSyntax) -> BoundNodeKind {
+        if !self.variables.contains_key(&name.token.text) {
+            self.diagnostics.report_unknown_variable(name.token.span);
+            println!("here xxx . {}", name.token.text);
+            println!("\n\n vairables {:?} \n", self.variables);
+            return BoundNodeKind::BoundLiteralExpression( BoundLiteralExpression { value_bool: None, value_num: None})
+        }
+
+        let type_ = self.variables.get(&name.token.text).unwrap();
+        return BoundNodeKind::BoundVariableExpression(BoundVariableExpression { name: name.token.text,  _type:type_.get_type() })
+    }
+
+    pub fn bind_assignment_expression(&mut self, syntax: AssignmentExpressionSyntax) -> BoundNodeKind {
+        let bound_expression = self.bind_expression(*syntax.expression);
+        let name = syntax.identifier_token.text;
+        return BoundNodeKind::BoundAssignmentExpression(BoundAssignmentExpression { name, bound_expression: Box::from(bound_expression) })
+    }
+
+    pub fn bind_literal_expression(&mut self, syntax: Value ) -> BoundNodeKind {
         if let Some(value) = syntax.value {
             return BoundNodeKind::BoundLiteralExpression(BoundLiteralExpression { value_num: Some(value), value_bool: None })
         } else if let Some(bool) = syntax.bool {
@@ -240,18 +301,22 @@ impl Binder {
         return BoundNodeKind::BoundLiteralExpression(BoundLiteralExpression {value_bool: None, value_num: None})
     }
 
-    pub fn bind_unary_expresssion(&self, bound_unary_expression: UnaryExpressionSyntax) -> BoundUnaryExpressionNode {
+    pub fn bind_unary_expresssion(&mut self, bound_unary_expression: UnaryExpressionSyntax) -> BoundUnaryExpressionNode {
         let bound_operand = self.bind_expression(*bound_unary_expression.operand.clone());
         let bound_operator_kind = BoundUnaryOperator::bind(bound_unary_expression.clone().operator_token.try_into_syntax_kind(), bound_operand.get_type());
         return BoundUnaryExpressionNode { operator_kind: Box::from(bound_operator_kind), operand: Box::from(bound_operand) }
     }
 
-    pub fn bind_binary_expression(&self, bound_binary_expression: BinaryExpressionSyntax) -> BoundBinaryExpression {
+    pub fn bind_binary_expression(&mut self, bound_binary_expression: BinaryExpressionSyntax) -> BoundBinaryExpression {
         let left = self.bind_expression(*bound_binary_expression.left);
         let right = self.bind_expression(*bound_binary_expression.right);
         let bound_operand = BoundBinaryOperator::bind(bound_binary_expression.operator_token.try_into_syntax_kind(), left.get_type(), right.get_type());
 
         return BoundBinaryExpression { left: Box::from(left), bound_binary_operator_kind: Box::from(bound_operand), right: Box::from(right)}
+    }
+
+    pub fn bind_parenthesis_expression(&mut self, expression: ParenthesizedExpression) -> BoundNodeKind {
+        return self.bind_expression(*expression.sub_expression)
     }
 
     // pub fn bind_unary_operator_kind(&self, kind: SyntaxNode) -> BoundUnaryOperatorKind {
