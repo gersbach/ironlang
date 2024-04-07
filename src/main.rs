@@ -755,7 +755,6 @@ impl Evaluator {
                         _ => Value::from_num(-308),
                     };
                 }
-                Value::from_num(-304)
             }
             _ => Value::from_num(-202) ,
         }
