@@ -2,7 +2,7 @@ mod binding;
 mod diagnostics;
 
 use std::{
-    collections::binary_heap::Iter, fmt, io::{stdin, stdout, Write}, ops::Bound, vec
+    collections::{binary_heap::Iter, HashMap}, fmt, hash::Hash, io::{stdin, stdout, Write}, ops::Bound, vec
 };
 use diagnostics::{Diagnostic, DiagnosticBag, TextSpan};
 use binding::{BoundBinaryOperatorKind, BoundNodeKind, BoundUnaryOperatorKind, Type};
@@ -11,6 +11,9 @@ use inline_colorization::*;
 use crate::binding::Binder;
 
 fn main() {
+
+    let mut variables = HashMap::new();
+
     while true {
         let mut line = String::new();
         print!("> ");
@@ -35,7 +38,7 @@ fn main() {
         let token = parser.parse();
 
         let compilation = Compilation::new(token.clone());
-        let result = compilation.evaluate();
+        let result = compilation.evaluate(&mut variables);
 
         parser.pretty_print(&token.expression.clone(), "".to_string(), true);
 
@@ -81,7 +84,8 @@ enum SyntaxKind {
     BangToken,
     EqEqToken,
     BangEqToken,
-    IdentifierToken
+    IdentifierToken,
+    Equals
 }
 
 #[derive(Debug)]
@@ -91,7 +95,7 @@ struct Lexer {
     diagnostics: DiagnosticBag,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct SyntaxToken {
     kind: SyntaxKind,
     position: i32,
@@ -127,6 +131,16 @@ impl Value {
 
     pub fn is_num(&self) -> bool {
         self.value.is_some()
+    }
+
+    pub fn get_type(&self) -> Type {
+        if self.is_bool() {
+            Type::Bool
+        } else if self.is_num() {
+            Type::Number
+        } else {
+            Type::Unkown
+        }
     }
 
     pub fn get_bool(&self) -> bool {
@@ -292,6 +306,9 @@ impl Lexer {
         } else if self.current() == '!' {
             self.position += 1;
             return SyntaxToken::new(SyntaxKind::BangToken, self.position, String::from("!"), None);
+        } else if self.current() == '=' {
+            self.position += 1;
+            return SyntaxToken::new(SyntaxKind::Equals, self.position, String::from("="), None);
         } else if self.current() == '&' && self.look_ahead() == "&" {
             self.position += 2;
             println!("here ..");
@@ -362,6 +379,8 @@ struct ParenthesizedExpression {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum SyntaxNode {
+    NameExpressionSyntax(NameExpressionSyntax),
+    AssignmentExpressionSyntax(AssignmentExpressionSyntax),
     BinaryExpressionSyntax(BinaryExpressionSyntax),
     UnaryExpressionSyntax(UnaryExpressionSyntax),
     OperatorNode(SyntaxKind),
@@ -413,6 +432,11 @@ impl Children for SyntaxNode {
                 (*un.operator_token).clone(),
                 (*un.operand).clone()
             ],
+            SyntaxNode::AssignmentExpressionSyntax(assign) => vec![
+
+                (*assign.expression).clone(),
+            ],
+            SyntaxNode::NameExpressionSyntax(name) => vec![],
             SyntaxNode::BoolNode(_) => vec![],
             SyntaxNode::NumberNode(num) => vec![],
             SyntaxNode::OperatorNode(op) => vec![],
@@ -427,6 +451,8 @@ impl fmt::Display for SyntaxNode {
         match self {
             SyntaxNode::BinaryExpressionSyntax(bin) => write!(f, "binary expression "),
             SyntaxNode::NumberNode(num) => write!(f, "number "),
+            SyntaxNode::AssignmentExpressionSyntax(_) => write!(f, "assign "),
+            SyntaxNode::NameExpressionSyntax(_) => write!(f, "name "),
             &SyntaxNode::BoolNode(bool) => write!(f, "bool "),
             SyntaxNode::OperatorNode(op) => write!(f, "operator "),
             SyntaxNode::UnaryExpressionSyntax(u) => write!(f, "unary expression "),
@@ -453,8 +479,6 @@ impl Parser {
 
         let mut token = lexer.next_token();
 
-        println!("tokens {token:?}");
-
         while true {
             if token.kind == SyntaxKind::EndOfFileToekn {
                 var_tokens.push(token);
@@ -464,8 +488,6 @@ impl Parser {
             }
             token = lexer.next_token()
         }
-
-        println!("tokens {var_tokens:?}");
 
         Parser {
             tokens: var_tokens,
@@ -493,8 +515,28 @@ impl Parser {
         }
     }
 
+    pub fn parse_expression(&mut self) -> SyntaxNode {
+        return self.parse_assignment_expression();
+    }
+
+    pub fn parse_assignment_expression(&mut self) -> SyntaxNode {
+
+
+        if self.peek(0).kind == SyntaxKind::IdentifierToken && self.peek(1).kind == SyntaxKind::Equals {
+            let id = self.current();
+            let identifier_token = self.next_token();
+            println!("indentifier token {:?} {:?}", identifier_token, id);
+            let opeator_token = self.next_token();
+            let right = self.parse_assignment_expression();
+            return SyntaxNode::AssignmentExpressionSyntax(AssignmentExpressionSyntax { identifier_token: id, equals_token: identifier_token, expression: Box::from(right)})
+        }
+
+        
+        return self.parse_binary_expression(0);
+    }
+
     pub fn parse(&mut self) -> SyntaxTree {
-        let expression = self.parse_expression(0);
+        let expression = self.parse_expression();
         println!("current {:?}", self.peek(1));
         let thing = self.peek(0).kind;
         if thing != SyntaxKind::EndOfFileToekn {
@@ -530,13 +572,13 @@ impl Parser {
     //     return left;
     // }
 
-    pub fn parse_expression(&mut self, parent_precedence: i32) -> SyntaxNode {
+    pub fn parse_binary_expression(&mut self, parent_precedence: i32) -> SyntaxNode {
         let mut left; 
         let unary_operator_precedence = self.get_unary_precedence(self.current().kind);
         if unary_operator_precedence != 0 && unary_operator_precedence >= parent_precedence {
             let op = self.current().kind;
             let operator_token = self.next_token();
-            let operand = self.parse_expression(unary_operator_precedence);
+            let operand = self.parse_binary_expression(unary_operator_precedence);
             left = SyntaxNode::UnaryExpressionSyntax(UnaryExpressionSyntax {operator_token: Box::new(SyntaxNode::OperatorNode(op)), operand: Box::new(operand) });
         } else {
             left = self.parse_primary_expression();
@@ -550,7 +592,7 @@ impl Parser {
 
             let op = self.current().kind;
             let operator_token = self.next_token();
-            let right = self.parse_expression(precedence);
+            let right = self.parse_binary_expression(precedence);
             left = SyntaxNode::BinaryExpressionSyntax(BinaryExpressionSyntax {
                 left: Box::new(left.clone()),
                 operator_token: Box::new(SyntaxNode::OperatorNode(op)),
@@ -612,7 +654,7 @@ impl Parser {
         if self.current().kind == SyntaxKind::OpenParenthesisToken {
             let left = self.next_token();
 
-            let expression = self.parse_expression(0);
+            let expression = self.parse_binary_expression(0);
             node = if self.current().kind == SyntaxKind::CloseParenthesisToken {
                 SyntaxNode::ParenthesizedExpression(ParenthesizedExpression { sub_expression: Box::new(expression)})
             } else {
@@ -624,6 +666,11 @@ impl Parser {
             // self.next_token();
             node = SyntaxNode::BoolNode(Value { bool: Some(value), value: None });
 
+        } else if self.current().kind == SyntaxKind::IdentifierToken {
+            let id = self.current();
+            let identifier_token = self.next_token();
+            println!("here xxxx");
+            return SyntaxNode::NameExpressionSyntax( NameExpressionSyntax::new(id))
         } else if self.current().kind == SyntaxKind::Number {
             node = SyntaxNode::NumberNode(self.current().value.unwrap())
         } else {
@@ -665,11 +712,11 @@ impl Compilation {
         Self { syntax_tree }
     }
 
-    pub fn evaluate(&self) -> Value {
-        let binder = Binder::new();
+    pub fn evaluate<'a>(&self, variables: &'a mut HashMap<String, Value>) -> Value {
+        let mut binder = Binder::new(variables);
         let boundExpression = binder.bind_expression(*self.syntax_tree.expression.clone());
 
-        let evaluator = Evaluator::new(boundExpression);
+        let mut evaluator = Evaluator::new(boundExpression, variables);
         evaluator.evaluate()
     }
 
@@ -685,24 +732,36 @@ impl EvaluationResult {
     }
 }
 
-struct Evaluator {
+struct Evaluator<'a> {
     root: BoundNodeKind,
+    variables: &'a mut HashMap<String, Value>
 }
 
-impl Evaluator {
-    pub fn new(node: BoundNodeKind) -> Self {
-        return Evaluator { root: node };
+impl<'a> Evaluator<'a> {
+    pub fn new(node: BoundNodeKind, variables: &'a mut HashMap<String, Value>) -> Self {
+        return Evaluator { root: node, variables };
     }
 
-    pub fn evaluate(&self) -> Value {
+    pub fn evaluate(&mut self) -> Value {
         return self.evaluate_expression(self.root.clone());
     }
 
-    pub fn evaluate_expression(&self, root: BoundNodeKind) -> Value {
+    pub fn evaluate_expression(&mut self, root: BoundNodeKind) -> Value {
         // binary expression
         // number epxresion
 
         match root {
+            BoundNodeKind::BoundVariableExpression(bound_var) => {
+                println!("here xxx ... {bound_var:?} {}", bound_var.name);
+                return self.variables.get(&bound_var.name).unwrap().clone()
+            }
+            BoundNodeKind::BoundAssignmentExpression(assing_var) => {
+                let value = self.evaluate_expression(*assing_var.bound_expression);
+                println!("value {value:?} {}", assing_var.name);
+                self.variables.insert(assing_var.name, value);
+                println!("\n\n vairables {:?} \n", self.variables);
+                return value;
+            }
             BoundNodeKind::BoundLiteralExpression(number_node) => return number_node.into_value(),
             // BoundNodeKind::ParenthesizedExpression(p) => return self.evaluate_expression(*p.sub_expression.clone()),
             BoundNodeKind::BoundUnaryExpressionNode(u) => {
@@ -758,5 +817,47 @@ impl Evaluator {
             }
             _ => Value::from_num(-202) ,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NameExpressionSyntax {
+    pub token: SyntaxToken,
+
+}
+
+impl NameExpressionSyntax {
+    pub fn new(identifier_token: SyntaxToken) -> Self {
+        Self { token: identifier_token }
+    }
+
+    pub fn get_children(&self) -> Vec<SyntaxNode> {
+        vec![]
+    }
+}
+
+/// You want expression, these expression bind to the left
+/// assotiativity of the right
+/// 
+///   =
+///  / \
+/// a  =
+///   / \
+///  b   5
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssignmentExpressionSyntax {
+    pub identifier_token: SyntaxToken,
+    pub equals_token: SyntaxToken,
+    pub expression: Box<SyntaxNode>
+}
+
+impl AssignmentExpressionSyntax {
+    pub fn new(identifier_token: SyntaxToken, equals_token: SyntaxToken, expression: SyntaxNode) -> Self {
+        Self { identifier_token, equals_token, expression: Box::from(expression) }
+    }
+
+    pub fn get_children(&self) -> Vec<SyntaxNode> {
+        vec![*self.expression.clone()]
     }
 }

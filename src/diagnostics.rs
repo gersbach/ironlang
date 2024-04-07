@@ -2,7 +2,7 @@ use std::{fmt::{self, format}, path::Display, vec};
 
 use crate::{binding::Type, SyntaxKind};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextSpan {
     start: i32,
     length: i32
@@ -63,6 +63,10 @@ impl DiagnosticBag {
         self.report(span, message);
     }
 
+    pub fn report_unknown_variable(&mut self, span: TextSpan) {
+        let message = format!("Variable name does not exists");
+        self.report(span, message);
+    }
 
     pub fn report_invalid_number(&mut self, span: TextSpan, type_: Type) {
         let message = format!("The number isn't valid");
