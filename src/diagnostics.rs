@@ -1,11 +1,15 @@
-use std::{fmt::{self, format}, path::Display, vec};
+use std::{
+    fmt::{self, format},
+    path::Display,
+    vec,
+};
 
 use crate::{binding::Type, SyntaxKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextSpan {
-    start: i32,
-    length: i32
+    pub start: i32,
+    pub length: i32,
 }
 
 impl TextSpan {
@@ -21,7 +25,7 @@ impl TextSpan {
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     span: TextSpan,
-    message: String
+    message: String,
 }
 
 impl fmt::Display for Diagnostic {
@@ -38,17 +42,26 @@ impl Diagnostic {
 
 #[derive(Debug, Clone)]
 pub struct DiagnosticBag {
-    pub diagnostics: Vec<Diagnostic>
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl DiagnosticBag {
-
     pub fn new() -> Self {
-        DiagnosticBag {diagnostics: vec![] }
+        DiagnosticBag {
+            diagnostics: vec![],
+        }
     }
 
-    pub fn report_unexpected_token(&mut self, span: TextSpan, kind: SyntaxKind, expected_kind: SyntaxKind) {
-        let message = format!("Unexpected token <{}>, expected <{}>", "kind", "expected_kind"); // todo fix this busy work
+    pub fn report_unexpected_token(
+        &mut self,
+        span: TextSpan,
+        kind: SyntaxKind,
+        expected_kind: SyntaxKind,
+    ) {
+        let message = format!(
+            "Unexpected token <{}>, expected <{}>",
+            "kind", "expected_kind"
+        ); // todo fix this busy work
         self.report(span, message)
     }
 
@@ -81,5 +94,4 @@ impl DiagnosticBag {
     pub fn len(&self) -> i32 {
         self.diagnostics.len() as i32
     }
-
 }
