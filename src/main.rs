@@ -1,6 +1,10 @@
 mod binding;
 mod diagnostics;
 mod lexer_tests;
+mod parser_tests;
+use strum::IntoEnumIterator; // 0.17.1
+use strum_macros::EnumIter; // 0.17.1
+
 
 use binding::{BoundBinaryOperatorKind, BoundNodeKind, BoundUnaryOperatorKind, Type};
 use diagnostics::{Diagnostic, DiagnosticBag, TextSpan};
@@ -67,7 +71,7 @@ fn main() {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, EnumIter)]
 enum SyntaxKind {
     Number,
     WhiteSpace,
@@ -623,7 +627,7 @@ impl Parser {
 
     pub fn parse_binary_expression(&mut self, parent_precedence: i32) -> SyntaxNode {
         let mut left;
-        let unary_operator_precedence = self.get_unary_precedence(self.current().kind);
+        let unary_operator_precedence = get_unary_precedence(self.current().kind);
         if unary_operator_precedence != 0 && unary_operator_precedence >= parent_precedence {
             let op = self.current().kind;
             let operator_token = self.next_token();
@@ -637,7 +641,7 @@ impl Parser {
         }
 
         while true {
-            let precedence = self.get_binary_precedence(self.current().kind);
+            let precedence = get_binary_precedence(self.current().kind);
             if precedence == 0 || precedence <= parent_precedence {
                 break;
             }
@@ -653,25 +657,6 @@ impl Parser {
         }
 
         return left;
-    }
-
-    pub fn get_binary_precedence(&self, kind: SyntaxKind) -> i32 {
-        match kind {
-            SyntaxKind::MulToken | SyntaxKind::DivToken => 5,
-            SyntaxKind::PlusToken | SyntaxKind::MinusToken => 4,
-            SyntaxKind::EqEqToken | SyntaxKind::BangEqToken => 3,
-            SyntaxKind::AmpersandAmpersandToken => 2,
-            SyntaxKind::PipePipeToken => 1,
-            _ => 0,
-        }
-    }
-
-    pub fn get_unary_precedence(&self, kind: SyntaxKind) -> i32 {
-        match kind {
-            SyntaxKind::PlusToken | SyntaxKind::MinusToken => 3,
-            SyntaxKind::BangToken => 1,
-            _ => 0,
-        }
     }
 
     // recursive descent parser
@@ -933,5 +918,24 @@ impl AssignmentExpressionSyntax {
 
     pub fn get_children(&self) -> Vec<SyntaxNode> {
         vec![*self.expression.clone()]
+    }
+}
+
+pub fn get_binary_precedence(kind: SyntaxKind) -> i32 {
+    match kind {
+        SyntaxKind::MulToken | SyntaxKind::DivToken => 5,
+        SyntaxKind::PlusToken | SyntaxKind::MinusToken => 4,
+        SyntaxKind::EqEqToken | SyntaxKind::BangEqToken => 3,
+        SyntaxKind::AmpersandAmpersandToken => 2,
+        SyntaxKind::PipePipeToken => 1,
+        _ => 0,
+    }
+}
+
+pub fn get_unary_precedence(kind: SyntaxKind) -> i32 {
+    match kind {
+        SyntaxKind::PlusToken | SyntaxKind::MinusToken => 3,
+        SyntaxKind::BangToken => 1,
+        _ => 0,
     }
 }

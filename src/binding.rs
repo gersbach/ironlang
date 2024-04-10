@@ -1,5 +1,7 @@
 use core::panic;
 use std::{collections::HashMap, fmt};
+use strum::IntoEnumIterator; // 0.17.1
+use strum_macros::EnumIter; // 0.17.1
 
 use crate::{
     diagnostics::{DiagnosticBag, TextSpan},
@@ -90,7 +92,7 @@ pub enum BoundUnaryOperatorKind {
     LogicalNegation,
 }
 
-#[derive(Clone)]
+#[derive(Clone, EnumIter)]
 pub enum BoundBinaryOperatorKind {
     Addition,
     Subtraction,
@@ -192,12 +194,12 @@ impl BoundUnaryOperator {
             Self::new_same_type(
                 SyntaxKind::BangToken,
                 BoundUnaryOperatorKind::LogicalNegation,
-                Type::Number,
+                Type::Bool,
             ),
         ];
 
         for op in thing {
-            if (op.syntax_kind == syntax_kind && op.operand_type == operand_type) {
+            if op.syntax_kind == syntax_kind && op.operand_type == operand_type {
                 return op;
             }
         }
