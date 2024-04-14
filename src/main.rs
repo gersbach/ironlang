@@ -2,6 +2,8 @@ mod binding;
 mod diagnostics;
 mod lexer_tests;
 mod parser_tests;
+mod source_text;
+
 use strum::IntoEnumIterator; // 0.17.1
 use strum_macros::EnumIter; // 0.17.1
 
@@ -18,11 +20,10 @@ use std::{
     vec,
 };
 
-use crate::binding::Binder;
+use crate::{binding::Binder, source_text::SourceText};
 
 fn main() {
     let mut variables = HashMap::new();
-
     while true {
         let mut line = String::new();
         print!("> ");
@@ -36,7 +37,6 @@ fn main() {
 
         let mut terminal = term::stdout().unwrap();
 
-        let mut parser = Parser::new(line.clone());
 
         // if you write an ide, you care about whitespace
         // ASTs abstract syntax trees do not have whitespace or parenthesis
@@ -44,7 +44,11 @@ fn main() {
         // in the production enviornment, you expect a immutable represetnation
         // if syntax trees get modifieid and there are flags there is a lot of pain
         // ASTs have a slot for the type and the type checker fills that in
-        let token = parser.parse();
+
+        let source_text = SourceText::new(line.clone());
+        let mut parser = Parser::new(line.clone(), source_text.clone());
+
+        let token = parser.parse(source_text);
 
         let compilation = Compilation::new(token.clone());
         let result = compilation.evaluate(&mut variables);
@@ -55,7 +59,14 @@ fn main() {
 
         if parser.diagnostics.len() > 0 {
             for diagnostic in parser.diagnostics.diagnostics {
-                println!("{color_red}{diagnostic}{color_reset}");
+                
+                let line_index = compilation.syntax_tree.text.get_line_index(diagnostic.span.start);
+                let line =compilation.syntax_tree.text.lines.get(line_index).unwrap();
+                let line_number = line_index + 1;
+                let character = diagnostic.span.start - line.start + 1;
+
+                println!("{color_red}{}{color_reset}\n Error at: {}", diagnostic.message, line_number);
+                
             }
         } else {
             // let evaluateor = Evaluator::new(token.expression);
@@ -93,12 +104,16 @@ enum SyntaxKind {
     BangEqToken,
     IdentifierToken,
     Equals,
+    Other,
 }
 
 #[derive(Debug)]
 struct Lexer {
     text: String,
     position: i32,
+    kind: SyntaxKind,
+    start: i32,
+    value: Value,
     diagnostics: DiagnosticBag,
 }
 
@@ -122,6 +137,13 @@ impl Value {
         Self {
             value: Some(num),
             bool: None,
+        }
+    }
+
+    pub fn default() -> Self {
+        Self {
+            value: None,
+            bool: None
         }
     }
 
@@ -180,10 +202,13 @@ impl SyntaxToken {
 }
 
 impl Lexer {
-    pub fn new(text: String) -> Self {
+    pub fn new(text: String, source_text: SourceText) -> Self {
         Lexer {
             text,
             position: 0,
+            start: 0,
+            kind: SyntaxKind::Other,
+            value: Value::default(),
             diagnostics: DiagnosticBag::new(),
         }
     }
@@ -393,6 +418,7 @@ impl Lexer {
 struct Parser {
     tokens: Vec<SyntaxToken>,
     position: usize,
+    source_text: SourceText,
     pub diagnostics: DiagnosticBag,
 }
 
@@ -434,6 +460,14 @@ impl SyntaxNode {
         }
 
         panic!()
+    }
+
+    // this doesn't really work since children that are tokens are not being returned from the get_children function .... :(. Will need to think og a way to refactor
+    pub fn get_span(&self) -> TextSpan {
+        let first = self.get_children().first().unwrap().get_span();
+        let last = self.get_children().last().unwrap().get_span();
+
+        return TextSpan::new(first.length, first.length - last.length);
     }
 }
 
@@ -497,14 +531,15 @@ impl fmt::Display for SyntaxNode {
 
 #[derive(Clone)]
 struct SyntaxTree {
+    text: SourceText,
     diagnostics: DiagnosticBag,
     expression: Box<SyntaxNode>,
     end_of_file_token: SyntaxToken,
 }
 
 impl SyntaxTree {
-    pub fn parse_tokens(text: String) -> Vec<SyntaxToken> {
-        let mut lexer = Lexer::new(text);
+    pub fn parse_tokens(text: String, source_text: SourceText) -> Vec<SyntaxToken> {
+        let mut lexer = Lexer::new(text, source_text);
         let mut tokens = vec![];
         while true {
             let token = lexer.next_token();
@@ -518,8 +553,8 @@ impl SyntaxTree {
 }
 
 impl Parser {
-    pub fn new(text: String) -> Self {
-        let mut lexer = Lexer::new(text);
+    pub fn new(text: String, source_text: SourceText) -> Self {
+        let mut lexer = Lexer::new(text, source_text.clone());
 
         let mut var_tokens = vec![];
         let mut diagnostics = lexer.diagnostics.clone();
@@ -538,6 +573,7 @@ impl Parser {
 
         Parser {
             tokens: var_tokens,
+            source_text: source_text.clone(),
             position: 0,
             diagnostics,
         }
@@ -585,7 +621,7 @@ impl Parser {
         return self.parse_binary_expression(0);
     }
 
-    pub fn parse(&mut self) -> SyntaxTree {
+    pub fn parse(&mut self, source_text: SourceText) -> SyntaxTree {
         let expression = self.parse_expression();
         println!("current {:?}", self.peek(1));
         let thing = self.peek(0).kind;
@@ -599,6 +635,7 @@ impl Parser {
         }
 
         return SyntaxTree {
+            text: source_text,
             diagnostics: self.diagnostics.clone(),
             expression: Box::new(expression),
             end_of_file_token: self.current(),

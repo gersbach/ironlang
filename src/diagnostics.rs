@@ -24,8 +24,8 @@ impl TextSpan {
 
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
-    span: TextSpan,
-    message: String,
+    pub span: TextSpan,
+    pub message: String,
 }
 
 impl fmt::Display for Diagnostic {
