@@ -65,17 +65,17 @@ mod lexer_test {
         assert_eq!(tokens, tokens_expected);
     }
 
-    fn requieres_seperator(kind: SyntaxKind, kind2: SyntaxKind)  -> bool {
+    fn requieres_seperator(kind: SyntaxKind, kind2: SyntaxKind) -> bool {
         if kind == SyntaxKind::IdentifierToken && kind2 == SyntaxKind::IdentifierToken {
-            return true
+            return true;
         }
 
         if kind == SyntaxKind::IdentifierToken && kind2 == SyntaxKind::TrueKeyword {
-            return true
+            return true;
         }
 
         if kind == SyntaxKind::FalseKeyword && kind2 == SyntaxKind::IdentifierToken {
-            return true
+            return true;
         }
 
         false

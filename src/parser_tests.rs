@@ -4,8 +4,11 @@ mod parser_tests {
 
     use strum::IntoEnumIterator;
 
-    use crate::{binding::{BoundBinaryOperator, BoundBinaryOperatorKind}, diagnostics::TextSpan, get_binary_precedence, Children, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTree, Value};
-
+    use crate::{
+        binding::{BoundBinaryOperator, BoundBinaryOperatorKind},
+        diagnostics::TextSpan,
+        get_binary_precedence, Children, SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTree, Value,
+    };
 
     pub fn asserting_enumerator(node: SyntaxNode) -> VecDeque<SyntaxNode> {
         let mut stack = VecDeque::new();
@@ -22,24 +25,19 @@ mod parser_tests {
         stack
     }
 
-    pub fn assert_token(kind: SyntaxKind, text: String) {
-
-    }
+    pub fn assert_token(kind: SyntaxKind, text: String) {}
 
     #[test]
     pub fn syntax_fact_get_text_round_trips() {
         for token in SyntaxKind::iter() {
-
             if get_text(token.clone()) == "OTHER" {
-                continue
+                continue;
             }
 
             let token_actual = SyntaxTree::parse_tokens(get_text(token.clone()));
 
-
             assert_eq!(token.clone(), token_actual.first().unwrap().clone().kind)
         }
-
     }
 
     pub fn get_syntax_kind_data() -> Vec<SyntaxKind> {
@@ -50,11 +48,8 @@ mod parser_tests {
         let op1_prec = get_binary_precedence(op1);
         let op2_prec = get_binary_precedence(op2);
         if op1_prec >= op2_prec {
-
         } else {
-
         }
-        
     }
 
     pub fn get_text(kind: SyntaxKind) -> String {
@@ -65,8 +60,11 @@ mod parser_tests {
             SyntaxKind::BangToken => "!",
             SyntaxKind::DivToken => "/",
             SyntaxKind::Equals => "=",
+            SyntaxKind::ForKeyword => "for",
             SyntaxKind::EqEqToken => "==",
             SyntaxKind::FalseKeyword => "NTrue",
+            SyntaxKind::VarKeyword => "Var",
+            SyntaxKind::LetKeyword => "Let",
             SyntaxKind::MinusToken => "-",
             SyntaxKind::MulToken => "*",
             SyntaxKind::OpenParenthesisToken => "(",
@@ -74,9 +72,8 @@ mod parser_tests {
             SyntaxKind::WhiteSpace => " ",
             SyntaxKind::PlusToken => "+",
             SyntaxKind::TrueKeyword => "True",
-            _ => "OTHER"
-
-        })
+            _ => "OTHER",
+        });
     }
 
     pub fn get_binary_opeator_pairs_data() -> Vec<Vec<BoundBinaryOperatorKind>> {
